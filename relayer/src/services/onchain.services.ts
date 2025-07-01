@@ -1,9 +1,9 @@
 import { ethers } from "ethers";
-import { Aptos, AptosConfig, Network } from "@aptos-labs/ts-sdk";
+import { Account, Aptos, AptosConfig, Network, PendingTransactionResponse } from "@aptos-labs/ts-sdk";
 import { buildDstEscrowImmutables, buildTakerTraits, CreateDstEscrowParams, EscrowDetails, OrderDetails, prepareDataSrc, setTimelocks, WithdrawDstParams, WithdrawSrcParams } from "../utils/crosschainlib";
 
 const ETH_RPC = process.env.ETH_RPC_URL!
-
+const MODULE_ADDRESS = "0xYOUR_MODULE_ADDR";
 export const getEvmProvider = () => {
   const evmProvider = new ethers.JsonRpcProvider(ETH_RPC);
   return evmProvider;
@@ -15,6 +15,12 @@ export const getAptosClient = () => {
   });
   return new Aptos(aptosConfig);
 };
+
+export const getAptosConfig = () => {
+  return new AptosConfig({
+    network: Network.TESTNET,
+  });
+}
 
 export async function createEVMSrcEscrow(
   orderDetails: OrderDetails,
@@ -201,10 +207,108 @@ export async function withdrawEVMSrc(
   return tx.wait();
 }
 
-export const createAptosSrcEscrow = () => {};
+async function sendEntryFunction(
+  client: Aptos,
+  signer: Account,
+  func: string,
+  args: any[],
+): Promise<PendingTransactionResponse> {
+  const transaction = await client.transaction.build.simple({
+    sender: signer.accountAddress,
+    data: {
+      function: `${MODULE_ADDRESS}::fusion::${func}`,
+      functionArguments: args,
+    },
+  })
+  const [userTransactionResponse] = await client.transaction.simulate.simple({
+    signerPublicKey: signer.publicKey,
+    transaction
+  })
 
-export const createAptosDstEscrow = () => {};
+  if (userTransactionResponse.success) {
+    const senderAuthenticator = client.transaction.sign({
+      signer: signer,
+      transaction,
+    })
+    const commitedTransaction = await client.transaction.submit.simple({
+      transaction,
+      senderAuthenticator,
+    })
+    return commitedTransaction
+  } else {
+    throw new Error(`Transaction simulation failed: ${userTransactionResponse.success}`)
+  }
+}
 
-export const withdrawAptosDst = () => {};
+/**
+ * Initiate an escrow (on source or destination chain).
+ */
+export async function createAptosEscrow(
+  sender: Account,
+  recipient: string,
+  amount: number,            // in octas, e.g. 1 APT = 1_000_000
+  chainId: number,
+  dstChainId: number,
+  dstAddress: string,
+  secretHash: Uint8Array,    // keccak256(secret)
+  expirationTime: number     // unix seconds
+): Promise<PendingTransactionResponse> {
+  const client = getAptosClient();
+  return sendEntryFunction(
+    client,
+    sender,
+    "initiate_swap",
+    [
+      recipient,
+      amount.toString(),
+      chainId.toString(),
+      dstChainId.toString(),
+      dstAddress,
+      Array.from(secretHash),
+      expirationTime.toString(),
+    ]
+  );
+}
 
-export const withdrawAptosSrc = () => {};
+/**
+ * Withdraw an escrow:
+ * - If you pass `secret`, it calls `claim_swap`.
+ * - If you pass `secretHash`, it calls `refund_swap`.
+ */
+export async function withdrawAptos(
+  signer: Account,
+  senderAddress: string,
+  opts: {
+    secret?: Uint8Array,
+    secretHash?: Uint8Array,
+  }
+): Promise<PendingTransactionResponse> {
+  const client = getAptosClient();
+
+  if (opts.secret) {
+    // Claim path
+    return sendEntryFunction(
+      client,
+      signer,
+      "claim_swap",
+      [
+        senderAddress,
+        Array.from(opts.secret),
+      ]
+    );
+  }
+
+  if (opts.secretHash) {
+    // Refund path
+    return sendEntryFunction(
+      client,
+      signer,
+      "refund_swap",
+      [
+        Array.from(opts.secretHash),
+      ]
+    );
+  }
+
+  throw new Error("Must provide either `secret` (to claim) or `secretHash` (to refund)");
+}
