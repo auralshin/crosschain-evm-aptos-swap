@@ -44,14 +44,14 @@ enum EscrowStatus {
 
 model Order {
   id                      Int         @id @default(autoincrement())
-  sourceUserAddress       String // User’s wallet on source chain
-  sourceTokenAddress      String // Token they’re swapping
-  destinationTokenAddress String // Token they want to receive
-  sourceTokenAmount       String // Amount of source token to swap
-  destinationTokenAmount  String // Amount of destination token to receive
-  sourceChain             Chain // EVM or APTOS
-  destinationChain        Chain // EVM or APTOS
-  destinationUserAddress  String // User’s wallet on dest chain
+  sourceUserAddress       String
+  sourceTokenAddress      String
+  destinationTokenAddress String
+  sourceTokenAmount       String
+  destinationTokenAmount  String
+  sourceChain             Chain
+  destinationChain        Chain
+  destinationUserAddress  String
   status                  OrderStatus @default(AUCTION_OPEN)
   createdAt               DateTime    @default(now())
   updatedAt               DateTime    @updatedAt
@@ -65,31 +65,41 @@ model Bid {
   id           Int       @id @default(autoincrement())
   order        Order     @relation("OrderBids", fields: [orderId], references: [id])
   orderId      Int
-  resolver     String // Address of the resolver placing this bid
-  bidAmount    String // The deposit/stake offered by resolver for the bid
-  bidTxHash    String? // On‐chain tx hash of bid placement
-  filledAmount String // How much of the order this bid actually fills (partial‐fill support)
-  expiry       DateTime // Bid validity deadline
+  resolver     String
+  bidAmount    String
+  bidTxHash    String?
+  filledAmount String
+  expiry       DateTime
   status       BidStatus @default(PLACED)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 }
 
 model Escrow {
-  id            Int          @id @default(autoincrement())
-  order         Order        @relation("OrderEscrows", fields: [orderId], references: [id])
+  id            Int        @id @default(autoincrement())
+  order         Order      @relation("OrderEscrows", fields: [orderId], references: [id])
   orderId       Int
   side          EscrowSide // SRC or DST
   chain         Chain // EVM or APTOS
-  escrowAddress String // Contract/account address holding funds
-  escrowTxHash  String // On‐chain tx hash of escrow creation
-  secretHash    String // Hashlock used for this escrow
-  status        EscrowStatus @default(CREATED)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  escrowAddress String // Deployed contract address
+  escrowTxHash  String // Tx hash of deploySrc()
 
-  secret   Secret? @relation("EscrowToSecret")
-  secretId Int?
+  // Hashlock and signature fields
+  hashlock  String // keccak256("secret")
+  orderHash String // hashOrder(...)
+  sigR      String // splitSig.r
+  sigVS     String // bytes32((v-27)<<255) | s
+
+  // The raw ABI-encoded blobs you passed in
+  timelocks      String // 32-byte hex blob for Timelocks.wrap(...)
+  extraData      String // bytes from buidDynamicData()
+  auctionDetails String // bytes from buildAuctionDetails()
+
+  status    EscrowStatus @default(CREATED)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  secret Secret? @relation("EscrowToSecret")
 }
 
 model Secret {
@@ -98,6 +108,6 @@ model Secret {
   orderId    Int
   escrow     Escrow   @relation("EscrowToSecret", fields: [escrowId], references: [id])
   escrowId   Int      @unique
-  secret     String // The pre‐image revealed by the user
+  secret     String
   revealedAt DateTime @default(now())
 }
