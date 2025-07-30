@@ -17,10 +17,16 @@ userRouter.post('/create/orders', async (req: Request, res: Response) => {
 
 // Get order (with bids, escrows, secrets)
 userRouter.get('/orders/:id', async (req: Request, res: Response) => {
-  const orderId = Number(req.params.id);
-  const order = await orders.getOrder(orderId);
-  if (!order) return res.status(404).json({ error: 'Order not found' });
-  res.json(order);
+  try {
+    const orderId = Number(req.params.id);
+    const order = await orders.getOrder(orderId);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    return res.json(order);
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 // Reveal secret

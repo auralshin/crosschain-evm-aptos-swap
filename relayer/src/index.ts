@@ -15,16 +15,18 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
-  if (req.url === '/orders/auction') {
+  const pathname = req.url?.replace(/\/+$/, '');
+  if (pathname === '/orders/auction') {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
     });
   } else {
+    console.warn(`Rejected WS upgrade on unknown path: ${req.url}`);
     socket.destroy();
   }
 });
 
-setupAuctionWebSocket(wss);
+setupAuctionWebSocket(wss)
 
 app.use(bodyParser.json());
 app.use('/user', userRouter);
