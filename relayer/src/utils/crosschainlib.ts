@@ -47,7 +47,7 @@ export interface OrderDetails {
   dstSafetyDeposit: bigint;
   resolvers: string[];
   resolverFee: number;
-  auctionDetails: string;
+  auctionDetails: string; // use buildAuctionDetails to create this
   protocolFeeRecipient: string;
   integratorFeeRecipient: string;
   protocolFee: number;
@@ -65,11 +65,11 @@ export interface EscrowDetails {
 }
 
 export interface SwapData {
-  order: any;                        // IOrderMixin.Order shape
+  order: any; // IOrderMixin.Order shape
   extension: string;
   extraData: Uint8Array<ArrayBufferLike>;
   orderHash: string;
-  immutables: any;                  // IBaseEscrow.Immutables
+  immutables: any; // IBaseEscrow.Immutables
 }
 
 export interface CreateDstEscrowParams {
@@ -116,7 +116,6 @@ export interface WithdrawSrcParams {
   safetyDeposit: bigint;
 }
 
-
 /**
  *  TimelocksSettersLib
  */
@@ -137,17 +136,22 @@ export function setTimelocks(
     DstCancellation: 7n,
   };
   function wrapTlocks(
-    w: number, pw: number, c: number, pc: number,
-    dw: number, dpw: number, dc: number,
+    w: number,
+    pw: number,
+    c: number,
+    pc: number,
+    dw: number,
+    dpw: number,
+    dc: number,
     ts: bigint
   ): bigint {
     let field = ts << 224n;
-    field |= BigInt(w)  << (32n * S.SrcWithdrawal);
+    field |= BigInt(w) << (32n * S.SrcWithdrawal);
     field |= BigInt(pw) << (32n * S.SrcPublicWithdrawal);
-    field |= BigInt(c)  << (32n * S.SrcCancellation);
+    field |= BigInt(c) << (32n * S.SrcCancellation);
     field |= BigInt(pc) << (32n * S.SrcPublicCancellation);
     field |= BigInt(dw) << (32n * S.DstWithdrawal);
-    field |= BigInt(dpw)<< (32n * S.DstPublicWithdrawal);
+    field |= BigInt(dpw) << (32n * S.DstPublicWithdrawal);
     field |= BigInt(dc) << (32n * S.DstCancellation);
     return field;
   }
@@ -163,7 +167,10 @@ export function setTimelocks(
     now
   );
   const tDst = wrapTlocks(
-    0, 0, 0, 0,
+    0,
+    0,
+    0,
+    0,
     dst.withdrawal,
     dst.publicWithdrawal,
     dst.cancellation,
@@ -174,7 +181,16 @@ export function setTimelocks(
 
 /**
  * buildAuctionDetails
- */
+
+   *     bytes memory auctionPoints = abi.encodePacked(
+   *           uint8(5), // amount of points
+    *          uint24(800000), uint16(100),
+    *          uint24(700000), uint16(100),
+     *         uint24(600000), uint16(100),
+    *          uint24(500000), uint16(100),
+     *         uint24(400000), uint16(100)
+      *   );
+         */
 export function buildAuctionDetails(
   gasBumpEstimate: number,
   gasPriceEstimate: number,
@@ -185,14 +201,14 @@ export function buildAuctionDetails(
   auctionPoints: string
 ): string {
   return ethers.solidityPackedKeccak256(
-    ["uint24","uint32","uint32","uint24","uint24","bytes"],
+    ["uint24", "uint32", "uint32", "uint24", "uint24", "bytes"],
     [
       gasBumpEstimate,
       gasPriceEstimate,
       startTime + delay,
       duration,
       initialRateBump,
-      auctionPoints
+      auctionPoints,
     ]
   );
 }
@@ -208,15 +224,16 @@ const FLAGS = {
   USE_PERMIT2: 1n << 248n,
 };
 export function buildMakerTraits(params: MakerTraitsParams): bigint {
-  let data = BigInt(params.series) << 160n
-    | BigInt(params.nonce)  << 120n
-    | BigInt(params.expiry)  <<  80n
-    | (BigInt(params.allowedSender) & ((1n<<80n)-1n));
-  if (params.unwrapWeth)       data |= FLAGS.UNWRAP_WETH;
+  let data =
+    (BigInt(params.series) << 160n) |
+    (BigInt(params.nonce) << 120n) |
+    (BigInt(params.expiry) << 80n) |
+    (BigInt(params.allowedSender) & ((1n << 80n) - 1n));
+  if (params.unwrapWeth) data |= FLAGS.UNWRAP_WETH;
   if (params.allowMultipleFills) data |= FLAGS.ALLOW_MULTIPLE_FILLS;
-  if (!params.allowPartialFill)  data |= FLAGS.NO_PARTIAL_FILLS;
-  if (params.shouldCheckEpoch)    data |= FLAGS.NEED_CHECK_EPOCH;
-  if (params.usePermit2)          data |= FLAGS.USE_PERMIT2;
+  if (!params.allowPartialFill) data |= FLAGS.NO_PARTIAL_FILLS;
+  if (params.shouldCheckEpoch) data |= FLAGS.NEED_CHECK_EPOCH;
+  if (params.usePermit2) data |= FLAGS.USE_PERMIT2;
   return data;
 }
 
@@ -224,13 +241,13 @@ export function buildMakerTraits(params: MakerTraitsParams): bigint {
  *  buildTakerTraits
  */
 const T_FLAGS = {
-  MAKER_AMOUNT:    1n << 255n,
-  UNWRAP_WETH:     1n << 254n,
-  SKIP_ORDER:      1n << 253n,
-  USE_PERMIT2:     1n << 252n,
-  HAS_TARGET:      1n << 251n,
-  EXT_LEN_SHIFT:   224n,
-  INT_LEN_SHIFT:   200n,
+  MAKER_AMOUNT: 1n << 255n,
+  UNWRAP_WETH: 1n << 254n,
+  SKIP_ORDER: 1n << 253n,
+  USE_PERMIT2: 1n << 252n,
+  HAS_TARGET: 1n << 251n,
+  EXT_LEN_SHIFT: 224n,
+  INT_LEN_SHIFT: 200n,
 };
 export function buildTakerTraits(
   makingAmount: boolean,
@@ -244,16 +261,17 @@ export function buildTakerTraits(
 ): { traits: bigint; args: string } {
   let data = threshold;
   if (makingAmount) data |= T_FLAGS.MAKER_AMOUNT;
-  if (unwrapWeth)   data |= T_FLAGS.UNWRAP_WETH;
+  if (unwrapWeth) data |= T_FLAGS.UNWRAP_WETH;
   if (skipMakerPermit) data |= T_FLAGS.SKIP_ORDER;
-  if (usePermit2)      data |= T_FLAGS.USE_PERMIT2;
+  if (usePermit2) data |= T_FLAGS.USE_PERMIT2;
   if (target !== ethers.ZeroAddress) data |= T_FLAGS.HAS_TARGET;
   data |= BigInt(extension.length) << T_FLAGS.EXT_LEN_SHIFT;
   data |= BigInt(interaction.length) << T_FLAGS.INT_LEN_SHIFT;
 
-  const targetBytes = target !== ethers.ZeroAddress
-    ? ethers.getBytes(target)
-    : ethers.getBytes("0x");
+  const targetBytes =
+    target !== ethers.ZeroAddress
+      ? ethers.getBytes(target)
+      : ethers.getBytes("0x");
   const args = ethers.concat([targetBytes, extension, interaction]);
   return { traits: data, args };
 }
@@ -285,33 +303,35 @@ export function buildOrder(
     interactions.permit,
     interactions.preInteraction,
     interactions.postInteraction,
-    customData
+    customData,
   ];
   let sum = 0;
   let offset = 0n;
   const blobs = [] as Uint8Array[];
-  for (let i=0; i<parts.length; i++) {
+  for (let i = 0; i < parts.length; i++) {
     const p = parts[i];
     sum += p.length;
-    const shift = BigInt(i*32);
+    const shift = BigInt(i * 32);
     offset |= BigInt(p.length) << shift;
     blobs.push(p);
   }
-  const offsetsHex = offset.toString(16).padStart(64, '0');
-  const offsets = ethers.getBytes('0x' + offsetsHex);
+  const offsetsHex = offset.toString(16).padStart(64, "0");
+  const offsets = ethers.getBytes("0x" + offsetsHex);
   const extension = ethers.concat([offsets, ...blobs]);
 
   // compute salt and set flags
   let salt = 1n;
   if (extension.length > 0) {
-    salt = BigInt(ethers.solidityPackedSha256(["bytes"], [extension])) & ((1n<<160n)-1n);
-    makerTraits |= (1n<<249n); // _HAS_EXTENSION_FLAG
+    salt =
+      BigInt(ethers.solidityPackedSha256(["bytes"], [extension])) &
+      ((1n << 160n) - 1n);
+    makerTraits |= 1n << 249n; // _HAS_EXTENSION_FLAG
   }
   if (interactions.preInteraction.length > 0) {
-    makerTraits |= (1n<<252n);
+    makerTraits |= 1n << 252n;
   }
   if (interactions.postInteraction.length > 0) {
-    makerTraits |= (1n<<251n);
+    makerTraits |= 1n << 251n;
   }
 
   const order = {
@@ -337,10 +357,12 @@ export function buildDynamicData(
   timelocks: bigint
 ): Uint8Array {
   const combined = (srcSafetyDeposit << 128n) | dstSafetyDeposit;
-  return ethers.getBytes(ethers.AbiCoder.defaultAbiCoder().encode(
-    ["bytes32","uint256","address","uint256","uint256","uint256"],
-    [hashlock, chainId, token, combined, timelocks]
-  ));
+  return ethers.getBytes(
+    ethers.AbiCoder.defaultAbiCoder().encode(
+      ["bytes32", "uint256", "address", "uint256", "uint256", "uint256"],
+      [hashlock, chainId, token, combined, timelocks]
+    )
+  );
 }
 
 export async function prepareDataSrc(
@@ -369,7 +391,7 @@ export async function prepareDataSrc(
     predicate: ethers.getBytes("0x"),
     permit: ethers.getBytes("0x"),
     preInteraction: ethers.getBytes("0x"),
-    postInteraction: extraData
+    postInteraction: extraData,
   };
   const customData = ethers.getBytes("0x");
   const { order, extension } = buildOrder(
@@ -397,7 +419,7 @@ export async function prepareDataSrc(
     hashlock: escrowDetails.hashlock,
     safetyDeposit: orderDetails.srcSafetyDeposit,
     timelocks: escrowDetails.timelocks,
-    parameters: "0x"
+    parameters: "0x",
   };
 
   return {
@@ -405,7 +427,7 @@ export async function prepareDataSrc(
     extension,
     extraData,
     orderHash,
-    immutables
+    immutables,
   };
 }
 
@@ -427,8 +449,13 @@ export function buildDstEscrowImmutables(
   integratorFeeRecipient: string
 ): any {
   const parameters = ethers.AbiCoder.defaultAbiCoder().encode(
-    ["uint256","uint256","address","address"],
-    [protocolFeeAmount, integratorFeeAmount, protocolFeeRecipient, integratorFeeRecipient]
+    ["uint256", "uint256", "address", "address"],
+    [
+      protocolFeeAmount,
+      integratorFeeAmount,
+      protocolFeeRecipient,
+      integratorFeeRecipient,
+    ]
   );
   return {
     orderHash,
@@ -439,7 +466,7 @@ export function buildDstEscrowImmutables(
     amount,
     safetyDeposit,
     timelocks,
-    parameters
+    parameters,
   };
 }
 
