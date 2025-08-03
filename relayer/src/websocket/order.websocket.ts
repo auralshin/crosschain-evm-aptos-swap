@@ -1,7 +1,9 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { BidsService } from '../services/bids.services';
+import { OrdersService } from '../services/orders.services';
 
-const bids = new BidsService();
+const orderService = new OrdersService();
+
+let auctionWss: WebSocketServer | null = null;
 
 export function setupAuctionWebSocket(wss: WebSocketServer) {
   wss.on('connection', (ws: WebSocket) => {
@@ -16,13 +18,13 @@ export function setupAuctionWebSocket(wss: WebSocketServer) {
   });
 }
 
-// Broadcast open orders to all clients
-export async function broadcastOpenOrders(wss: WebSocketServer) {
+export async function broadcastOpenOrders() {
+  if (!auctionWss) return;
   try {
-    const orders = await bids.listOpenOrders();
+    const orders = await orderService.getOpenOrders();
     const msg = JSON.stringify({ type: 'open_orders', data: orders });
 
-    for (const client of wss.clients) {
+    for (const client of auctionWss.clients) {
       if (client.readyState === WebSocket.OPEN) {
         client.send(msg);
       }
@@ -35,7 +37,7 @@ export async function broadcastOpenOrders(wss: WebSocketServer) {
 // Optional: send just to one client on connect
 async function sendOpenOrders(ws: WebSocket) {
   try {
-    const orders = await bids.listOpenOrders();
+    const orders = await orderService.getOpenOrders();
     const msg = JSON.stringify({ type: 'open_orders', data: orders });
     if (ws.readyState === ws.OPEN) {
       ws.send(msg);

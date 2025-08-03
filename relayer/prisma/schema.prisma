@@ -52,6 +52,8 @@ model Order {
   sourceChain             Chain
   destinationChain        Chain
   destinationUserAddress  String
+  auctionStartTime        DateTime
+  auctionDuration         Int // Duration in seconds
   status                  OrderStatus @default(AUCTION_OPEN)
   createdAt               DateTime    @default(now())
   updatedAt               DateTime    @updatedAt

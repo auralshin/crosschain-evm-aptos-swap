@@ -2,6 +2,7 @@ import { prisma } from "../prisma";
 import { Chain, OrderStatus } from "../generated/prisma";
 import { ethers } from "ethers";
 import { isAptosAddress } from "../utils/utils";
+import { broadcastOpenOrders } from "../websocket/order.websocket";
 
 export interface CreateOrderDto {
   sourceUserAddress: string; // User’s wallet on source chain
@@ -11,7 +12,9 @@ export interface CreateOrderDto {
   destinationTokenAmount: string; // Amount of destination token to receive
   sourceChain: Chain; // EVM or APTOS
   destinationChain: Chain; // EVM or APTOS
-  destinationUserAddress: string; // User’s wallet on dest chain
+  destinationUserAddress: string; // User’s wallet on dest chain'
+  auctionStartTime?: Date; // Optional, if not provided, use current time
+  auctionDuration?: number; // Optional, in seconds, default to 3600 (1 hour)
 }
 
 export interface RevealSecretDto {
@@ -44,16 +47,17 @@ export class OrdersService {
       const chain = dto[chainKey];
       const addr = dto[addrKey] as unknown as string;
 
-      const validator = chainValidators[chain];
-      if (!validator) {
+      if (typeof chain !== "string" || !(chain in chainValidators)) {
         throw new Error(`Unsupported chain: ${chain}`);
       }
+      const validator = chainValidators[chain as string];
       if (!validator(addr)) {
         throw new Error(`Invalid ${label} for ${chain}`);
       }
     }
+    console.log("Order created with data:", dto);
 
-    return prisma.order.create({
+    const createdOrder =  prisma.order.create({
       data: {
         sourceUserAddress: dto.sourceUserAddress,
         sourceTokenAddress: dto.sourceTokenAddress,
@@ -64,8 +68,12 @@ export class OrdersService {
         destinationChain: dto.destinationChain,
         destinationUserAddress: dto.destinationUserAddress,
         status: OrderStatus.AUCTION_OPEN,
+        auctionStartTime: dto.auctionStartTime || new Date(Date.now()),
+        auctionDuration: dto.auctionDuration || 3 * 12, // Default to 36 seconds - 3 blocks at 12 seconds each
       },
     });
+    await broadcastOpenOrders();
+    return createdOrder;
   }
 
   async getOrder(orderId: number) {
@@ -77,6 +85,17 @@ export class OrdersService {
 
   async getOrders() {
     return prisma.order.findMany();
+  }
+
+  async getOpenOrders() {
+    const now = new Date();
+    return prisma.order.findMany({
+      where: {
+        status: OrderStatus.AUCTION_OPEN,
+        auctionStartTime: { lte: now },
+      },
+      include: { bids: true }, // optional
+    });
   }
 
   async revealSecret(orderId: number, dto: RevealSecretDto) {
