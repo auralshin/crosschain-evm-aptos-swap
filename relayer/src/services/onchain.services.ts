@@ -24,7 +24,7 @@ export const getAptosConfig = () => {
 
 export async function createEVMSrcEscrow(
   orderDetails: OrderDetails,
-  resolverAddress: string,
+  resolverAddress: string[],
   factoryAddress: string,
   limitOrderProtocol: ethers.Contract,
   signer: ethers.Signer

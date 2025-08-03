@@ -2,8 +2,11 @@ import { prisma } from "../prisma";
 import { Chain, OrderStatus } from "../generated/prisma";
 import { ethers } from "ethers";
 import { isAptosAddress } from "../utils/utils";
-import { broadcastOpenOrders } from "../websocket/order.websocket";
-
+import { eventBus } from "../events";
+import { AuctionService } from "./auction.services";
+import { scheduler } from "./scheduler.services";
+import { logger } from "../logger";
+import { v4 as uuidv4 } from 'uuid';
 export interface CreateOrderDto {
   sourceUserAddress: string; // User’s wallet on source chain
   sourceTokenAddress: string; // Token they’re swapping
@@ -26,6 +29,13 @@ const chainValidators: Record<string, (addr: string) => boolean> = {
   APTOS: isAptosAddress,
 };
 
+function getDefaultAuctionPoints(base: number): { price: number, weight: number }[] {
+return [0.8, 0.7, 0.6, 0.5, 0.4].map(p => ({
+  price: Math.floor(base * p),
+  weight: 100,
+}));
+}
+const auctionService = new AuctionService();
 export class OrdersService {
   async createOrder(dto: CreateOrderDto) {
     const addrFields: [keyof CreateOrderDto, keyof CreateOrderDto, string][] = [
@@ -55,28 +65,41 @@ export class OrdersService {
         throw new Error(`Invalid ${label} for ${chain}`);
       }
     }
-    console.log("Order created with data:", dto);
+    const auctionStart = dto.auctionStartTime || new Date(Date.now());
+    const auctionDuration = dto.auctionDuration || 3 * 12;
+    const orderId = uuidv4();
 
-    const createdOrder =  prisma.order.create({
+    logger.info(`Order Created`, {
+      orderId,
+      details: dto,
+    });
+    const createdOrder = await prisma.order.create({
       data: {
+        id: orderId,
         sourceUserAddress: dto.sourceUserAddress,
         sourceTokenAddress: dto.sourceTokenAddress,
         destinationTokenAddress: dto.destinationTokenAddress,
         sourceTokenAmount: dto.sourceTokenAmount,
         destinationTokenAmount: dto.destinationTokenAmount,
-        sourceChain: dto.sourceChain,
-        destinationChain: dto.destinationChain,
+        sourceChain: dto.sourceChain as Chain,
+        destinationChain: dto.destinationChain as Chain,
         destinationUserAddress: dto.destinationUserAddress,
         status: OrderStatus.AUCTION_OPEN,
-        auctionStartTime: dto.auctionStartTime || new Date(Date.now()),
-        auctionDuration: dto.auctionDuration || 3 * 12, // Default to 36 seconds - 3 blocks at 12 seconds each
+        auctionStartTime: auctionStart,
+        auctionDuration,
       },
     });
-    await broadcastOpenOrders();
+    eventBus.emit("ORDER_CREATED", createdOrder);
+    const start = createdOrder.auctionStartTime;
+    const duration = createdOrder.auctionDuration;
+    const points = getDefaultAuctionPoints(
+      parseInt(createdOrder.destinationTokenAmount, 10)
+    );
+    scheduler.schedule(createdOrder.id, start, duration, points);
     return createdOrder;
   }
 
-  async getOrder(orderId: number) {
+  async getOrder(orderId: string) {
     return prisma.order.findUnique({
       where: { id: orderId },
       include: { bids: true, escrows: true, secrets: true },
@@ -98,7 +121,7 @@ export class OrdersService {
     });
   }
 
-  async revealSecret(orderId: number, dto: RevealSecretDto) {
+  async revealSecret(orderId: string, dto: RevealSecretDto) {
     // find the DST escrow
     const dst = await prisma.escrow.findFirst({
       where: { orderId, side: "DST" },
@@ -120,6 +143,7 @@ export class OrdersService {
       where: { id: orderId },
       data: { status: OrderStatus.SECRET_REVEALED },
     });
+    eventBus.emit("SECRET_REVEALED", { orderId, secret });
     return secret;
   }
 }

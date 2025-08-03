@@ -43,7 +43,7 @@ enum EscrowStatus {
 }
 
 model Order {
-  id                      Int         @id @default(autoincrement())
+  id                      String         @id @default(uuid())
   sourceUserAddress       String
   sourceTokenAddress      String
   destinationTokenAddress String
@@ -66,7 +66,7 @@ model Order {
 model Bid {
   id           Int       @id @default(autoincrement())
   order        Order     @relation("OrderBids", fields: [orderId], references: [id])
-  orderId      Int
+  orderId      String
   resolver     String
   bidAmount    String
   bidTxHash    String?
@@ -80,7 +80,7 @@ model Bid {
 model Escrow {
   id            Int        @id @default(autoincrement())
   order         Order      @relation("OrderEscrows", fields: [orderId], references: [id])
-  orderId       Int
+  orderId       String
   side          EscrowSide // SRC or DST
   chain         Chain // EVM or APTOS
   escrowAddress String // Deployed contract address
@@ -107,7 +107,7 @@ model Escrow {
 model Secret {
   id         Int      @id @default(autoincrement())
   order      Order    @relation("OrderSecrets", fields: [orderId], references: [id])
-  orderId    Int
+  orderId    String
   escrow     Escrow   @relation("EscrowToSecret", fields: [escrowId], references: [id])
   escrowId   Int      @unique
   secret     String

@@ -1,11 +1,26 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { OrdersService } from '../services/orders.services';
+import { eventBus } from '../events';
 
-const orderService = new OrdersService();
+const ordersService = new OrdersService();
 
 let auctionWss: WebSocketServer | null = null;
 
 export function setupAuctionWebSocket(wss: WebSocketServer) {
+  auctionWss = wss;
+
+  eventBus.on('ORDER_CREATED', (order) => {
+    broadcast(wss, { type: 'ORDER_CREATED', data: order });
+  });
+
+  eventBus.on('BID_PLACED', (payload) => {
+    broadcast(wss, { type: 'BID_PLACED', data: payload });
+  });
+
+  eventBus.on('AUCTION_CLOSED', (payload) => {
+    broadcast(wss, { type: 'AUCTION_CLOSED', data: payload });
+  });
+
   wss.on('connection', (ws: WebSocket) => {
     console.log('WS client connected to /orders/auction');
 
@@ -18,31 +33,23 @@ export function setupAuctionWebSocket(wss: WebSocketServer) {
   });
 }
 
-export async function broadcastOpenOrders() {
-  if (!auctionWss) return;
-  try {
-    const orders = await orderService.getOpenOrders();
-    const msg = JSON.stringify({ type: 'open_orders', data: orders });
-
-    for (const client of auctionWss.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(msg);
-      }
-    }
-  } catch (err) {
-    console.error('Failed to broadcast open orders:', err);
-  }
-}
-
-// Optional: send just to one client on connect
 async function sendOpenOrders(ws: WebSocket) {
   try {
-    const orders = await orderService.getOpenOrders();
+    const orders = await ordersService.getOpenOrders();
     const msg = JSON.stringify({ type: 'open_orders', data: orders });
     if (ws.readyState === ws.OPEN) {
       ws.send(msg);
     }
   } catch (err) {
     console.error('Failed to send open orders to new client:', err);
+  }
+}
+
+function broadcast(wss: WebSocketServer, message: any) {
+  const str = JSON.stringify(message);
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(str);
+    }
   }
 }

@@ -1,7 +1,8 @@
 import { prisma } from "../prisma";
 import { BidStatus, OrderStatus } from "../generated/prisma";
 import { ethers } from "ethers";
-import { broadcastOpenOrders } from "../websocket/order.websocket";
+import { eventBus } from "../events";
+import { logger } from "../logger";
 type AuctionPoint = { price: bigint; weight: number };
 export class AuctionService {
   /**
@@ -67,7 +68,7 @@ export class AuctionService {
    * @param pointsInput       Array of { price, weight } matching your Solidity schedule
    */
   async closeAuction(
-    orderId: number,
+    orderId: string,
     auctionStart: number,
     auctionDuration: number,
     pointsInput: Array<{ price: number; weight: number }>
@@ -137,7 +138,6 @@ export class AuctionService {
         where: { id: orderId },
         data: { status: OrderStatus.AUCTION_CLOSED },
       });
-      await broadcastOpenOrders();
       return { clearingPrice: clearingPrice.toString(), winners: [] };
     }
 
@@ -160,11 +160,59 @@ export class AuctionService {
       where: { id: orderId },
       data: { status: OrderStatus.AUCTION_CLOSED },
     });
-    await broadcastOpenOrders();
+    console.log("placeBid() called with orderId:", orderId);
+
+    logger.debug(`Auction closed for order ${orderId}`, {
+      clearingPrice: clearingPrice.toString(),
+      winners: winners.map((w) => ({
+        id: w.id,
+        filledAmount: w.filledAmount.toString(),
+      })),
+    });
+
+    const updatedOrder = await prisma.order.findUniqueOrThrow({
+      where: { id: String(orderId) },
+      include: {
+        bids: {
+          where: {
+            id: { in: [...winnerIds] },
+          },
+          select: {
+            id: true,
+            resolver: true,
+            filledAmount: true,
+          },
+        },
+      },
+    });
+    eventBus.emit("AUCTION_CLOSED", {
+      orderId,
+      clearingPrice: clearingPrice.toString(),
+      winners: updatedOrder.bids.map((bid) => ({
+        id: bid.id,
+        resolver: bid.resolver,
+        filledAmount: bid.filledAmount,
+      })),
+      order: {
+        id: updatedOrder.id,
+        destinationTokenAmount: updatedOrder.destinationTokenAmount,
+        status: updatedOrder.status,
+        auctionStartTime: updatedOrder.auctionStartTime,
+        auctionDuration: updatedOrder.auctionDuration,
+        sourceChain: updatedOrder.sourceChain,
+        destinationChain: updatedOrder.destinationChain,
+        destinationUserAddress: updatedOrder.destinationUserAddress,
+        sourceUserAddress: updatedOrder.sourceUserAddress,
+      },
+    });
 
     return {
       clearingPrice: clearingPrice.toString(),
-      winners,
+      winners: updatedOrder.bids.map((bid) => ({
+        id: bid.id,
+        resolver: bid.resolver,
+        filledAmount: bid.filledAmount,
+      })),
     };
   }
 }
